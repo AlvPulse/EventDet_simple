@@ -146,7 +146,7 @@ def train_and_save():
         'max_depth': [5, 10],
         'min_samples_split': [2, 5]
     }
-    rf = RandomForestClassifier(random_state=42)
+    rf = RandomForestClassifier(random_state=42, class_weight="balanced")
     rf_grid = GridSearchCV(rf, rf_params, cv=5, scoring='roc_auc', n_jobs=-1)
     rf_grid.fit(X_train_rich, y_train)
     best_rf = rf_grid.best_estimator_
