@@ -1,0 +1,18 @@
+paths:
+  data_dir: "./dataset" # The root containing 'yes' and 'no'
+  output_dir: "./results"
+
+preprocessing:
+  denoise: [true, false]
+  sample_rate: 16000
+  chunk_duration: 1.0  # seconds
+
+features:
+  mfcc:
+    n_mfcc_variants: [13, 40]
+    aggregation_method: "max"  # Options: "mean", "max", "median", "std"
+    n_fft: 2048
+    hop_length: 512
+
+threshold_analysis:
+  steps: 100
