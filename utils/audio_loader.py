@@ -51,6 +51,10 @@ def normalize_audio(y):
     """
     Normalizes the audio to be within -1 to 1.
     """
+    if y is None or len(y) == 0:
+        return y
+
+    y = np.nan_to_num(y)
     max_val = np.max(np.abs(y))
     if max_val > 0:
         return y / max_val
@@ -74,15 +78,29 @@ def wavelet_denoise(y, wavelet='db4', level=1):
     """
     Applies Wavelet Denoising using Soft Thresholding.
     """
-    # Decompose
-    coeff = pywt.wavedec(y, wavelet, mode="per")
-    # Calculate threshold (universal threshold)
-    sigma = (1/0.6745) * np.median(np.abs(coeff[-1] - np.median(coeff[-1])))
-    uthresh = sigma * np.sqrt(2 * np.log(len(y)))
-    # Thresholding
-    coeff[1:] = (pywt.threshold(i, value=uthresh, mode='soft') for i in coeff[1:])
-    # Reconstruct
-    return pywt.waverec(coeff, wavelet, mode='per')
+    # Safety check for silent/near-silent signals
+    if np.all(y == 0) or np.std(y) < 1e-9:
+        return np.zeros_like(y)
+
+    try:
+        # Decompose
+        coeff = pywt.wavedec(y, wavelet, mode="per")
+        # Calculate threshold (universal threshold)
+        sigma = (1/0.6745) * np.median(np.abs(coeff[-1] - np.median(coeff[-1])))
+        uthresh = sigma * np.sqrt(2 * np.log(len(y)))
+        # Thresholding
+        coeff[1:] = (pywt.threshold(i, value=uthresh, mode='soft') for i in coeff[1:])
+        # Reconstruct
+        rec = pywt.waverec(coeff, wavelet, mode='per')
+
+        # Ensure length matches input (sometimes reconstruction adds a sample)
+        if len(rec) > len(y):
+            rec = rec[:len(y)]
+
+        return np.nan_to_num(rec)
+    except Exception as e:
+        print(f"Warning: Wavelet denoise failed ({e}), returning original.")
+        return y
 
 def preprocess_audio(y, sr, filter_config=None):
     """
@@ -90,7 +108,7 @@ def preprocess_audio(y, sr, filter_config=None):
     filter_config: List of strings (e.g., ['highpass', 'wavelet'])
     """
     if not filter_config:
-        return y
+        return normalize_audio(np.nan_to_num(y)) # Ensure safety even without filters
 
     y_processed = y.copy()
 
@@ -106,7 +124,7 @@ def preprocess_audio(y, sr, filter_config=None):
         else:
             print(f"Warning: Unknown filter '{filter_name}' skipped.")
     
-    return normalize_audio(y_processed)
+    return normalize_audio(np.nan_to_num(y_processed))
 
 def get_audio_chunks(file_path, sr, chunk_duration):
     """
@@ -115,7 +133,8 @@ def get_audio_chunks(file_path, sr, chunk_duration):
     y, _ = librosa.load(file_path, sr=sr)
     chunk_samples = int(chunk_duration * sr)
     
-    # Split audio into chunks of fixed length
+    # Split audio into chunks of fixed length.
+    # IMPORTANT: Chunks smaller than chunk_samples are IGNORED.
     chunks = [y[i:i + chunk_samples] for i in range(0, len(y), chunk_samples) 
               if len(y[i:i + chunk_samples]) == chunk_samples]
     return chunks
