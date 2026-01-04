@@ -2,6 +2,8 @@ import librosa
 import numpy as np
 from pathlib import Path
 import os
+import scipy.signal as signal
+import pywt
 
 def crawl_dataset_simple(data_dir):
     dataset_map = {'yes': [], 'no': []}
@@ -45,21 +47,66 @@ def crawl_dataset(data_dir):
             
     return dataset_map
 
-def preprocess_audio(y, sr, denoise_flag=False):
+def normalize_audio(y):
     """
-    Handles denoising logic. 
-    You can expand this to include Spectral Subtraction or Bandpass filters.
+    Normalizes the audio to be within -1 to 1.
     """
-    if not denoise_flag:
+    max_val = np.max(np.abs(y))
+    if max_val > 0:
+        return y / max_val
+    return y
+
+def high_pass_filter(y, sr, cutoff=1000):
+    """
+    Applies a high-pass Butterworth filter.
+    """
+    sos = signal.butter(10, cutoff, 'hp', fs=sr, output='sos')
+    return signal.sosfilt(sos, y)
+
+def band_pass_filter(y, sr, low_cutoff=500, high_cutoff=4000):
+    """
+    Applies a band-pass Butterworth filter.
+    """
+    sos = signal.butter(10, [low_cutoff, high_cutoff], 'bp', fs=sr, output='sos')
+    return signal.sosfilt(sos, y)
+
+def wavelet_denoise(y, wavelet='db4', level=1):
+    """
+    Applies Wavelet Denoising using Soft Thresholding.
+    """
+    # Decompose
+    coeff = pywt.wavedec(y, wavelet, mode="per")
+    # Calculate threshold (universal threshold)
+    sigma = (1/0.6745) * np.median(np.abs(coeff[-1] - np.median(coeff[-1])))
+    uthresh = sigma * np.sqrt(2 * np.log(len(y)))
+    # Thresholding
+    coeff[1:] = (pywt.threshold(i, value=uthresh, mode='soft') for i in coeff[1:])
+    # Reconstruct
+    return pywt.waverec(coeff, wavelet, mode='per')
+
+def preprocess_audio(y, sr, filter_config=None):
+    """
+    Applies a sequence of filters specified in filter_config.
+    filter_config: List of strings (e.g., ['highpass', 'wavelet'])
+    """
+    if not filter_config:
         return y
+
+    y_processed = y.copy()
+
+    for filter_name in filter_config:
+        if filter_name == 'preemphasis':
+            y_processed = librosa.effects.preemphasis(y_processed)
+        elif filter_name == 'highpass':
+            y_processed = high_pass_filter(y_processed, sr)
+        elif filter_name == 'bandpass':
+            y_processed = band_pass_filter(y_processed, sr)
+        elif filter_name == 'wavelet':
+            y_processed = wavelet_denoise(y_processed)
+        else:
+            print(f"Warning: Unknown filter '{filter_name}' skipped.")
     
-    # 1. Simple Pre-emphasis filter (boosts high frequencies, reduces low-end noise)
-    y_processed = librosa.effects.preemphasis(y)
-    
-    # 2. Add more complex denoising here (e.g., noise gate or spectral gating)
-    # y_processed = some_denoise_function(y_processed)
-    
-    return y_processed
+    return normalize_audio(y_processed)
 
 def get_audio_chunks(file_path, sr, chunk_duration):
     """

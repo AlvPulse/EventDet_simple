@@ -1,3 +1,4 @@
-dataset
-results
-.venv
+*.pyc
+__pycache__/
+dataset/
+results/
