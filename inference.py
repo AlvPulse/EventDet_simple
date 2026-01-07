@@ -133,7 +133,7 @@ def visualize_results(y, sr, results, out_path):
 if __name__ == "__main__":
     # For demonstration, pick a file automatically if not provided
     # ideally utilize argparse, but hardcoded for the plan step verification
-    test_file = "dataset/yes/yes_000.wav"
+    test_file = "dataset/Eval/DS3/Helicopter1.wav"
 
     if os.path.exists(test_file):
         artifacts = load_artifacts()
