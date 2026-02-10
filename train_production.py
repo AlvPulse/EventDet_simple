@@ -11,7 +11,7 @@ from utils.analysis import get_best_config
 # Constants
 DATASET_DIR = "dataset"
 MODELS_DIR = "models"
-SR = 16000
+# SR = 16000 # Now dynamic
 CHUNK_DUR = 1.0
 
 def train_production_model():
@@ -19,7 +19,15 @@ def train_production_model():
     config = get_best_config("results/hyperparameter_search_results.csv")
     if not config: return
 
+    target_sr = config['target_sr']
     print(f"Using Best Preprocessing: {config['filter_config']}")
+    print(f"Target SR: {target_sr}, Feature Type: {config['feature_type']}")
+
+    # Add spectral gating if it was selected in random search
+    production_filters = (config['filter_config'] or []).copy()
+    if config['noise_reduction']:
+         if 'spectral_gating' not in production_filters:
+             production_filters.append('spectral_gating')
 
     # 2. Extract All Features (Production Config)
     # We decided to use "All Features" for the final model
@@ -27,7 +35,8 @@ def train_production_model():
         'use_deltas': True,
         'use_centroid': True,
         'use_flux': True,
-        'use_zcr': True
+        'use_zcr': True,
+        'feature_type': config['feature_type']
     }
 
     print("Extracting full feature set for production training...")
@@ -38,13 +47,13 @@ def train_production_model():
     for label_idx, label in enumerate(['no', 'yes']):
         for file_path in dataset[label]:
             try:
-                chunks = get_audio_chunks(file_path, SR, CHUNK_DUR)
+                chunks = get_audio_chunks(file_path, target_sr, CHUNK_DUR)
                 for chunk in chunks:
-                    y_proc = preprocess_audio(chunk, SR, filter_config=config['filter_config'])
+                    y_proc = preprocess_audio(chunk, target_sr, filter_config=production_filters)
 
                     # Extract with all flags
                     feats, _ = extract_extended_features(
-                        y_proc, SR,
+                        y_proc, target_sr,
                         n_mfcc=config['n_mfcc'],
                         n_fft=config['n_fft'],
                         hop_length=config['hop_length'],
