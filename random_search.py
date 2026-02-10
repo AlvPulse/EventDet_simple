@@ -3,6 +3,7 @@ import random
 import csv
 import numpy as np
 import matplotlib.pyplot as plt
+import yaml
 from utils.audio_loader import crawl_dataset, get_audio_chunks, preprocess_audio
 from utils.features import extract_mfcc_features, extract_pcen_features
 from utils.stats_engine import calculate_det_metrics
@@ -52,6 +53,14 @@ def save_det_curve(far, frr, out_path, title):
 def run_search():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+    # Load config for filter params
+    try:
+        with open('config.yaml', 'r') as f:
+            full_config = yaml.safe_load(f)
+        filter_params = full_config.get('preprocessing', {})
+    except Exception:
+        filter_params = {}
+
     # Initialize CSV Log
     csv_file = os.path.join(OUTPUT_DIR, "hyperparameter_search_results.csv")
     csv_headers = ["run_id", "filter_config", "n_mfcc", "n_fft", "hop_length", "agg_method",
@@ -96,7 +105,7 @@ def run_search():
                     chunks = get_audio_chunks(file_path, target_sr, CHUNK_DUR)
                     for chunk in chunks:
                         # Preprocess
-                        y_proc = preprocess_audio(chunk, target_sr, filter_config=current_filters)
+                        y_proc = preprocess_audio(chunk, target_sr, filter_config=current_filters, filter_params=filter_params)
 
                         # Feature Extract
                         if config['feature_type'] == 'pcen':

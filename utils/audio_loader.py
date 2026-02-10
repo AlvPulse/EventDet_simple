@@ -4,6 +4,15 @@ from pathlib import Path
 import os
 import scipy.signal as signal
 import pywt
+import yaml
+
+# Load default config
+try:
+    with open('config.yaml', 'r') as f:
+        _CONFIG = yaml.safe_load(f)
+    _FILTER_PARAMS = _CONFIG.get('preprocessing', {})
+except Exception:
+    _FILTER_PARAMS = {}
 
 def crawl_dataset_simple(data_dir):
     dataset_map = {'yes': [], 'no': []}
@@ -60,17 +69,51 @@ def normalize_audio(y):
         return y / max_val
     return y
 
-def high_pass_filter(y, sr, cutoff=1000):
+def high_pass_filter(y, sr, cutoff=None):
     """
     Applies a high-pass Butterworth filter.
+    Dynamically clamps cutoff to be < sr/2.
     """
+    if cutoff is None:
+        cutoff = _FILTER_PARAMS.get('high_pass_cutoff', 1000)
+
+    nyquist = sr / 2
+    if cutoff >= nyquist:
+        # If cutoff is too high for this SR, clamp it or disable
+        cutoff = nyquist * 0.95
+        # If still too high (e.g., extremely low SR), just return y
+        if cutoff <= 0: return y
+
     sos = signal.butter(10, cutoff, 'hp', fs=sr, output='sos')
     return signal.sosfilt(sos, y)
 
-def band_pass_filter(y, sr, low_cutoff=500, high_cutoff=4000):
+def band_pass_filter(y, sr, low_cutoff=None, high_cutoff=None):
     """
     Applies a band-pass Butterworth filter.
+    Dynamically clamps cutoffs to be within (0, sr/2).
     """
+    if low_cutoff is None:
+        low_cutoff = _FILTER_PARAMS.get('band_pass_low', 500)
+    if high_cutoff is None:
+        high_cutoff = _FILTER_PARAMS.get('band_pass_high', 4000)
+
+    nyquist = sr / 2
+
+    # Clamp high cutoff
+    if high_cutoff >= nyquist:
+        high_cutoff = nyquist * 0.95
+
+    # Ensure low < high
+    if low_cutoff >= high_cutoff:
+        # If the band is invalid (e.g. SR is so low that nyquist < low_cutoff),
+        # we can either adjust low_cutoff down or just return original signal.
+        # Let's try to adjust low_cutoff if possible.
+        low_cutoff = high_cutoff * 0.5
+
+    if low_cutoff <= 0:
+        # Invalid band, return original
+        return y
+
     sos = signal.butter(10, [low_cutoff, high_cutoff], 'bp', fs=sr, output='sos')
     return signal.sosfilt(sos, y)
 
@@ -143,13 +186,17 @@ def resample_audio(y, orig_sr, target_sr):
         return y
     return librosa.resample(y, orig_sr=orig_sr, target_sr=target_sr)
 
-def preprocess_audio(y, sr, filter_config=None):
+def preprocess_audio(y, sr, filter_config=None, filter_params=None):
     """
     Applies a sequence of filters specified in filter_config.
     filter_config: List of strings (e.g., ['highpass', 'wavelet'])
+    filter_params: Dictionary of params (e.g., {'high_pass_cutoff': 400})
     """
     if not filter_config:
         return normalize_audio(np.nan_to_num(y)) # Ensure safety even without filters
+
+    if filter_params is None:
+        filter_params = _FILTER_PARAMS
 
     y_processed = y.copy()
 
@@ -157,9 +204,12 @@ def preprocess_audio(y, sr, filter_config=None):
         if filter_name == 'preemphasis':
             y_processed = librosa.effects.preemphasis(y_processed)
         elif filter_name == 'highpass':
-            y_processed = high_pass_filter(y_processed, sr)
+            cutoff = filter_params.get('high_pass_cutoff', 1000)
+            y_processed = high_pass_filter(y_processed, sr, cutoff=cutoff)
         elif filter_name == 'bandpass':
-            y_processed = band_pass_filter(y_processed, sr)
+            low = filter_params.get('band_pass_low', 500)
+            high = filter_params.get('band_pass_high', 4000)
+            y_processed = band_pass_filter(y_processed, sr, low_cutoff=low, high_cutoff=high)
         elif filter_name == 'wavelet':
             y_processed = wavelet_denoise(y_processed)
         elif filter_name == 'spectral_gating':

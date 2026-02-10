@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import pickle
+import yaml
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import det_curve
@@ -18,6 +19,14 @@ def train_production_model():
     # 1. Load Preprocessing Config
     config = get_best_config("results/hyperparameter_search_results.csv")
     if not config: return
+
+    # Load filter params from config.yaml
+    try:
+        with open('config.yaml', 'r') as f:
+            full_config = yaml.safe_load(f)
+        filter_params = full_config.get('preprocessing', {})
+    except Exception:
+        filter_params = {}
 
     target_sr = config['target_sr']
     print(f"Using Best Preprocessing: {config['filter_config']}")
@@ -49,7 +58,7 @@ def train_production_model():
             try:
                 chunks = get_audio_chunks(file_path, target_sr, CHUNK_DUR)
                 for chunk in chunks:
-                    y_proc = preprocess_audio(chunk, target_sr, filter_config=production_filters)
+                    y_proc = preprocess_audio(chunk, target_sr, filter_config=production_filters, filter_params=filter_params)
 
                     # Extract with all flags
                     feats, _ = extract_extended_features(

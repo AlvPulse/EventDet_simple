@@ -7,6 +7,11 @@ preprocessing:
   sample_rate: 16000
   chunk_duration: 1.0  # seconds
 
+  # Filter Hyperparameters
+  high_pass_cutoff: 400
+  band_pass_low: 400
+  band_pass_high: 4000
+
 features:
   mfcc:
     n_mfcc_variants: [13, 40]
