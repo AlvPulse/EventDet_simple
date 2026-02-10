@@ -55,6 +55,35 @@ def extract_mfcc_features(y, sr, n_mfcc, n_fft=2048, hop_length=512, method="mea
     else:
         raise ValueError(f"Unknown aggregation method: {method}")
 
+def extract_pcen_features(y, sr, n_mfcc, n_fft=2048, hop_length=512, method="mean"):
+    """
+    Extracts PCEN features and aggregates them.
+    n_mfcc is used as n_mels for PCEN.
+    """
+    # 1. Compute Mel Spectrogram
+    mels = librosa.feature.melspectrogram(y=y, sr=sr, n_fft=n_fft, hop_length=hop_length, n_mels=n_mfcc)
+
+    # 2. PCEN
+    # Scaling by 2**31 is common for 16-bit audio
+    pcen = librosa.pcen(mels * (2**31))
+
+    if method == "mean":
+        return np.mean(pcen, axis=1)
+    elif method == "max":
+        return np.max(pcen, axis=1)
+    elif method == "min":
+        return np.min(pcen, axis=1)
+    elif method == "median":
+        return np.median(pcen, axis=1)
+    elif method == "std":
+        return np.std(pcen, axis=1)
+    elif method == "max_mean":
+        mean_val = np.mean(pcen, axis=1)
+        mean_val[mean_val == 0] = 1e-10
+        return np.max(pcen, axis=1) / mean_val
+    else:
+        raise ValueError(f"Unknown aggregation method: {method}")
+
 def extract_all_mfcc_stats(y, sr, n_mfcc, n_fft=2048, hop_length=512):
     """
     Extracts MFCCs and returns a flattened vector of ALL stats for EACH coefficient.
@@ -66,26 +95,36 @@ def extract_all_mfcc_stats(y, sr, n_mfcc, n_fft=2048, hop_length=512):
 
 def extract_extended_features(y, sr, n_mfcc, n_fft=2048, hop_length=512,
                               use_deltas=False, use_centroid=False,
-                              use_flux=False, use_zcr=False):
+                              use_flux=False, use_zcr=False,
+                              feature_type='mfcc'):
     """
     Extracts a super-vector of features based on flags.
-    Always includes base MFCCs.
+    Always includes base features (MFCC or PCEN).
+    feature_type: 'mfcc' or 'pcen'
     """
     features = []
     feature_names = []
 
-    # 1. Base MFCCs
-    mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=n_mfcc, n_fft=n_fft, hop_length=hop_length)
-    stats, stat_names = _compute_stats(mfccs)
+    # 1. Base Features
+    if feature_type == 'pcen':
+        mels = librosa.feature.melspectrogram(y=y, sr=sr, n_fft=n_fft, hop_length=hop_length, n_mels=n_mfcc)
+        base_feats = librosa.pcen(mels * (2**31))
+        base_name = "PCEN"
+    else:
+        # MFCC
+        base_feats = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=n_mfcc, n_fft=n_fft, hop_length=hop_length)
+        base_name = "MFCC"
+
+    stats, stat_names = _compute_stats(base_feats)
     features.extend(stats)
     for i in range(n_mfcc):
         for s in stat_names:
-            feature_names.append(f"MFCC_{i}_{s}")
+            feature_names.append(f"{base_name}_{i}_{s}")
 
     # 2. Deltas (Delta & Delta-Delta)
     if use_deltas:
         # Delta
-        delta1 = librosa.feature.delta(mfccs)
+        delta1 = librosa.feature.delta(base_feats)
         d1_stats, _ = _compute_stats(delta1)
         features.extend(d1_stats)
         for i in range(n_mfcc):
@@ -93,7 +132,7 @@ def extract_extended_features(y, sr, n_mfcc, n_fft=2048, hop_length=512,
                 feature_names.append(f"Delta_{i}_{s}")
 
         # Delta-Delta
-        delta2 = librosa.feature.delta(mfccs, order=2)
+        delta2 = librosa.feature.delta(base_feats, order=2)
         d2_stats, _ = _compute_stats(delta2)
         features.extend(d2_stats)
         for i in range(n_mfcc):

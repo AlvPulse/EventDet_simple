@@ -4,14 +4,14 @@ import csv
 import numpy as np
 import matplotlib.pyplot as plt
 from utils.audio_loader import crawl_dataset, get_audio_chunks, preprocess_audio
-from utils.features import extract_mfcc_features
+from utils.features import extract_mfcc_features, extract_pcen_features
 from utils.stats_engine import calculate_det_metrics
 
 # --- Configuration ---
 SEARCH_ITERATIONS = 20
 OUTPUT_DIR = "results"
 DATASET_DIR = "dataset"
-SR = 16000
+# SR = 16000 # SR is now dynamic
 CHUNK_DUR = 1.0
 
 # --- Search Space ---
@@ -29,7 +29,10 @@ PARAM_SPACE = {
     'n_mfcc': [13, 20, 40],
     'n_fft': [1024, 2048],
     'hop_length': [256, 512, 1024],
-    'agg_method': ['mean', 'max', 'min', 'median', 'std', 'max_mean']
+    'agg_method': ['mean', 'max', 'min', 'median', 'std', 'max_mean'],
+    'target_sr': [4000, 8000, 16000],
+    'feature_type': ['mfcc', 'pcen'],
+    'noise_reduction': [True, False]
 }
 
 def get_random_config():
@@ -52,6 +55,7 @@ def run_search():
     # Initialize CSV Log
     csv_file = os.path.join(OUTPUT_DIR, "hyperparameter_search_results.csv")
     csv_headers = ["run_id", "filter_config", "n_mfcc", "n_fft", "hop_length", "agg_method",
+                   "target_sr", "feature_type", "noise_reduction",
                    "mfcc_coeff_idx", "eer", "min_dcf", "auc"]
 
     # Write header if file doesn't exist
@@ -77,22 +81,40 @@ def run_search():
         coeff_scores = {k: {'yes': [], 'no': []} for k in range(config['n_mfcc'])}
 
         # 1. Process Dataset
+
+        # Determine actual filter config (add noise reduction if requested)
+        current_filters = (config['filter_config'] or []).copy()
+        if config['noise_reduction']:
+             if 'spectral_gating' not in current_filters:
+                 current_filters.append('spectral_gating')
+
+        target_sr = config['target_sr']
+
         for label in ['yes', 'no']:
             for file_path in dataset[label]:
                 try:
-                    chunks = get_audio_chunks(file_path, SR, CHUNK_DUR)
+                    chunks = get_audio_chunks(file_path, target_sr, CHUNK_DUR)
                     for chunk in chunks:
                         # Preprocess
-                        y_proc = preprocess_audio(chunk, SR, filter_config=config['filter_config'])
+                        y_proc = preprocess_audio(chunk, target_sr, filter_config=current_filters)
 
                         # Feature Extract
-                        feats = extract_mfcc_features(
-                            y_proc, SR,
-                            n_mfcc=config['n_mfcc'],
-                            n_fft=config['n_fft'],
-                            hop_length=config['hop_length'],
-                            method=config['agg_method']
-                        )
+                        if config['feature_type'] == 'pcen':
+                            feats = extract_pcen_features(
+                                y_proc, target_sr,
+                                n_mfcc=config['n_mfcc'],
+                                n_fft=config['n_fft'],
+                                hop_length=config['hop_length'],
+                                method=config['agg_method']
+                            )
+                        else:
+                            feats = extract_mfcc_features(
+                                y_proc, target_sr,
+                                n_mfcc=config['n_mfcc'],
+                                n_fft=config['n_fft'],
+                                hop_length=config['hop_length'],
+                                method=config['agg_method']
+                            )
 
                         # Store scores for each coefficient
                         for idx, val in enumerate(feats):
@@ -132,6 +154,9 @@ def run_search():
                     config['n_fft'],
                     config['hop_length'],
                     config['agg_method'],
+                    config['target_sr'],
+                    config['feature_type'],
+                    config['noise_reduction'],
                     coeff_idx,
                     f"{eer:.4f}",
                     f"{min_dcf:.4f}",

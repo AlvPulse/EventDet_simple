@@ -25,6 +25,9 @@ def get_best_config(csv_path):
             'n_fft': int(best_row['n_fft']),
             'hop_length': int(best_row['hop_length']),
             'n_mfcc': int(best_row['n_mfcc']),
+            'target_sr': int(best_row.get('target_sr', 16000)),
+            'feature_type': best_row.get('feature_type', 'mfcc'),
+            'noise_reduction': bool(best_row.get('noise_reduction', False)),
             # Baseline metrics for comparison
             'baseline_eer': float(best_row['eer']),
             'baseline_auc': float(best_row['auc']),

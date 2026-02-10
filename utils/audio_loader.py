@@ -102,6 +102,47 @@ def wavelet_denoise(y, wavelet='db4', level=1):
         print(f"Warning: Wavelet denoise failed ({e}), returning original.")
         return y
 
+def spectral_gating(y, sr, n_std_thresh=1.5, prop_decrease=1.0):
+    """
+    Applies a simple spectral gating noise reduction.
+    Estimates noise profile from the signal (assuming sparse events).
+    """
+    # STFT
+    n_fft = 2048
+    hop_length = 512
+    S = librosa.stft(y, n_fft=n_fft, hop_length=hop_length)
+    S_mag = np.abs(S)
+
+    # Estimate noise threshold per frequency bin
+    # We use a low percentile (10th) to estimate the noise floor,
+    # assuming the event is not present > 90% of the time.
+    noise_est = np.percentile(S_mag, 10, axis=1, keepdims=True)
+
+    # Threshold
+    threshold = noise_est * n_std_thresh
+
+    # Create mask (1 where signal > threshold, else 0)
+    # We can do soft masking or hard masking.
+    mask = (S_mag > threshold).astype(float)
+
+    # Apply mask
+    S_mag_clean = S_mag * mask
+
+    # Inverse STFT
+    # Use the original phase
+    S_clean = S_mag_clean * np.exp(1j * np.angle(S))
+    y_clean = librosa.istft(S_clean, length=len(y))
+
+    return np.nan_to_num(y_clean)
+
+def resample_audio(y, orig_sr, target_sr):
+    """
+    Resamples audio from orig_sr to target_sr.
+    """
+    if orig_sr == target_sr:
+        return y
+    return librosa.resample(y, orig_sr=orig_sr, target_sr=target_sr)
+
 def preprocess_audio(y, sr, filter_config=None):
     """
     Applies a sequence of filters specified in filter_config.
@@ -121,6 +162,8 @@ def preprocess_audio(y, sr, filter_config=None):
             y_processed = band_pass_filter(y_processed, sr)
         elif filter_name == 'wavelet':
             y_processed = wavelet_denoise(y_processed)
+        elif filter_name == 'spectral_gating':
+            y_processed = spectral_gating(y_processed, sr)
         else:
             print(f"Warning: Unknown filter '{filter_name}' skipped.")
     
